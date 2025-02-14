@@ -1,5 +1,17 @@
-#[allow(unused_imports)]
-use std::net::TcpListener;
+use std::{
+    io::Write,
+    net::{TcpListener, TcpStream},
+};
+
+fn handle_client(stream: &mut TcpStream) {
+    if let Err(err) = stream.write(b"HTTP/1.1 200 OK\r\n\r\n") {
+        println!("error: {}", err);
+    };
+
+    if let Err(err) = stream.flush() {
+        println!("error: {}", err);
+    };
+}
 
 fn main() {
     // Uncomment this block to pass the first stage
@@ -7,8 +19,8 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(_stream) => {
-                println!("accepted new connection");
+            Ok(mut stream) => {
+                handle_client(&mut stream);
             }
             Err(e) => {
                 println!("error: {}", e);
