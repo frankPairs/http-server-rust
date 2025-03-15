@@ -4,7 +4,7 @@ use std::{
     net::{TcpListener, TcpStream},
 };
 
-const MAX_BYTES_STREAM_BUFFER: usize = 100;
+const MAX_BYTES_STREAM_BUFFER: usize = 256;
 
 enum StatusCode {
     Ok,
