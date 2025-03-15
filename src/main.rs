@@ -4,9 +4,12 @@ use std::{
     net::{TcpListener, TcpStream},
 };
 
+const MAX_BYTES_STREAM_BUFFER: usize = 50;
+
 enum StatusCode {
     Ok,
     NotFound,
+    BadRequest,
     MethodNotAllowed,
 }
 
@@ -22,75 +25,14 @@ impl std::fmt::Display for StatusCode {
             StatusCode::MethodNotAllowed => {
                 write!(f, "405 Method Not Allowed")
             }
+            StatusCode::BadRequest => {
+                write!(f, "400 Bad Request")
+            }
         }
     }
 }
 
-trait Handler {
-    fn serve(&self, req: &mut Request, res: &mut Response);
-}
-
-#[derive(Debug)]
-struct HandlerFn {
-    method: String,
-    pattern: String,
-    handler_fn: fn(&Request, &mut Response),
-}
-
-impl Handler for HandlerFn {
-    fn serve(&self, req: &mut Request, res: &mut Response) {
-        if self.method != req.method {
-            return;
-        }
-
-        if !self.pattern.starts_with('/') {
-            return;
-        }
-
-        if self.pattern == "/" && req.path == "/" {
-            let handle_fn = self.handler_fn;
-
-            handle_fn(req, res);
-
-            return;
-        }
-
-        let pattern_values: Vec<&str> = self.pattern.split('/').collect();
-        let path_values: Vec<&str> = req.path.split('/').collect();
-
-        if pattern_values.len() != path_values.len() {
-            return;
-        }
-
-        let mut path_params: HashMap<String, String> = HashMap::new();
-
-        // It analyzes each fragment of the url and checks if it matches with the current pattern
-        for (index, pattern_value) in pattern_values.into_iter().enumerate() {
-            if let Some(param_name) = pattern_value
-                .strip_prefix('{')
-                .and_then(|word| word.strip_suffix('}'))
-            {
-                path_params.insert(
-                    param_name.to_string(),
-                    path_values.get(index).unwrap().to_string(),
-                );
-
-                continue;
-            }
-
-            if pattern_value != *path_values.get(index).unwrap() {
-                return;
-            }
-        }
-
-        req.set_path_params(path_params);
-
-        let handle_fn = self.handler_fn;
-
-        handle_fn(req, res);
-    }
-}
-
+type HandlerFn = fn(&Request, &mut Response);
 #[derive(Debug)]
 struct Request {
     method: String,
@@ -101,8 +43,104 @@ struct Request {
 }
 
 impl Request {
-    fn set_path_params(&mut self, new_path_params: HashMap<String, String>) {
-        self.path_params = new_path_params;
+    fn new(stream: &mut TcpStream) -> Self {
+        let mut bytes_received: Vec<u8> = vec![];
+        let mut buffer = [0u8; MAX_BYTES_STREAM_BUFFER];
+
+        loop {
+            // Read from the current data in the TcpStream
+            let bytes_read = stream.read(&mut buffer).unwrap();
+
+            // However many bytes we read, extend the `received` string bytes
+            bytes_received.extend_from_slice(&buffer[..bytes_read]);
+
+            // If we didn't fill the array
+            // stop reading because there's no more data (we hope!)
+            if bytes_read < MAX_BYTES_STREAM_BUFFER {
+                break;
+            }
+        }
+
+        let request_string = String::from_utf8_lossy(&bytes_received);
+        let request_parts: Vec<String> = request_string
+            .replace("\r\n\r\n", "")
+            .split("\r\n")
+            .map(String::from)
+            .collect();
+
+        let request_line = request_parts.first().unwrap_or(&String::new()).to_string();
+        let request_line: Vec<String> = request_line.split(" ").map(String::from).collect();
+        let request_headers: Option<Vec<String>> =
+            request_parts.get(1..).map(|parts| parts.to_vec());
+
+        let method = request_line.first().unwrap_or(&String::new()).to_string();
+        let path = request_line
+            .get(1)
+            .unwrap_or(&String::from("/"))
+            .to_string();
+
+        let version = request_line.get(2).unwrap_or(&String::new()).to_string();
+
+        let mut headers: HashMap<String, String> = HashMap::new();
+
+        if let Some(request_headers) = request_headers {
+            for header in request_headers {
+                let (header_name, header_value) = header.split_once(":").unwrap();
+
+                headers.insert(header_name.to_string(), header_value.trim().to_string());
+            }
+        }
+
+        Self {
+            method,
+            path,
+            version,
+            headers,
+            path_params: HashMap::new(),
+        }
+    }
+
+    fn method_and_pattern_matches(&mut self, method: &str, pattern: &str) -> bool {
+        if method != self.method {
+            return false;
+        }
+
+        if !pattern.starts_with('/') {
+            return false;
+        }
+
+        if pattern == "/" && self.path == "/" {
+            return true;
+        }
+
+        let pattern_values: Vec<&str> = pattern.split('/').collect();
+        let path_values: Vec<&str> = self.path.split('/').collect();
+
+        if pattern_values.len() != path_values.len() {
+            return false;
+        }
+
+        // It analyzes each fragment of the url and checks if it matches with the current pattern
+        for (index, pattern_value) in pattern_values.into_iter().enumerate() {
+            // Extracts the path parameters and insert it into the path_params map
+            if let Some(param_name) = pattern_value
+                .strip_prefix('{')
+                .and_then(|word| word.strip_suffix('}'))
+            {
+                self.path_params.insert(
+                    param_name.to_string(),
+                    path_values.get(index).unwrap().to_string(),
+                );
+
+                continue;
+            }
+
+            if pattern_value != *path_values.get(index).unwrap() {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
@@ -126,7 +164,7 @@ impl<'a> Response<'a> {
     }
 
     fn status_code(&mut self, status_code: StatusCode) {
-        let response_str = format!("HTTP/1.1 {}\r\n\r\n", status_code);
+        let response_str = format!("{} {}\r\n\r\n", self.version, status_code);
 
         self.stream.write_all(response_str.as_bytes()).unwrap();
     }
@@ -173,7 +211,7 @@ impl<'a> Response<'a> {
 }
 
 struct ServerHTTP {
-    handlers: HashMap<String, Box<dyn Handler>>,
+    handlers: HashMap<String, HandlerFn>,
 }
 
 impl ServerHTTP {
@@ -191,12 +229,15 @@ impl ServerHTTP {
             match stream {
                 Ok(mut stream) => {
                     let mut contain_matches = false;
-                    let mut req = Self::build_request(&mut stream);
+                    let mut req = Request::new(&mut stream);
                     let mut res = Response::new(&mut stream, req.version.clone());
 
                     for (k, h) in &self.handlers {
-                        if (Self::pattern_matches(&req, k.to_string())) {
-                            h.serve(&mut req, &mut res);
+                        let (method, pattern) = k.split_once(":").unwrap();
+
+                        if req.method_and_pattern_matches(method, pattern) {
+                            h(&mut req, &mut res);
+
                             contain_matches = true
                         }
                     }
@@ -221,83 +262,13 @@ impl ServerHTTP {
         pattern: String,
         handler_fn: fn(&Request, &mut Response),
     ) {
-        let handler = HandlerFn {
-            handler_fn,
-            method: method.clone(),
-            pattern: pattern.clone(),
-        };
+        let key = format!("{}:{}", method, pattern);
+        let exists = self.handlers.get(&key);
 
-        self.handlers
-            .insert(format!("{}:{}", method, pattern), Box::new(handler));
-    }
-
-    fn build_request(stream: &mut TcpStream) -> Request {
-        let mut buffer = [0; 1024];
-
-        if let Err(err) = stream.read(&mut buffer) {
-            println!("error: {}", err);
+        if exists.is_none() {
+            self.handlers
+                .insert(format!("{}:{}", method, pattern), handler_fn);
         }
-
-        let string_buffer = String::from_utf8_lossy(&buffer).to_string();
-        let request_parts: Vec<String> = string_buffer.split("\r\n").map(String::from).collect();
-
-        let request_line = request_parts.first().unwrap_or(&String::new()).to_string();
-        let request_line: Vec<String> = request_line.split(" ").map(String::from).collect();
-
-        let method = request_line.first().unwrap_or(&String::new()).to_string();
-        let path = request_line
-            .get(1)
-            .unwrap_or(&String::from("/"))
-            .to_string();
-
-        let version = request_line.get(2).unwrap_or(&String::new()).to_string();
-
-        Request {
-            method,
-            path,
-            version,
-            headers: HashMap::new(),
-            path_params: HashMap::new(),
-        }
-    }
-
-    fn pattern_matches(req: &Request, handler_key: String) -> bool {
-        let (method, pattern) = handler_key.split_once(":").unwrap();
-
-        if method != req.method {
-            return false;
-        }
-
-        if !pattern.starts_with('/') {
-            return false;
-        }
-
-        if pattern == "/" && req.path == "/" {
-            return true;
-        }
-
-        let pattern_values: Vec<&str> = pattern.split('/').collect();
-        let path_values: Vec<&str> = req.path.split('/').collect();
-
-        if pattern_values.len() != path_values.len() {
-            return false;
-        }
-
-        // It analyzes each fragment of the url and checks if it matches with the current pattern
-        for (index, pattern_value) in pattern_values.into_iter().enumerate() {
-            if let Some(param_name) = pattern_value
-                .strip_prefix('{')
-                .and_then(|word| word.strip_suffix('}'))
-            {
-                continue;
-            }
-
-            if pattern_value != *path_values.get(index).unwrap() {
-                return false;
-            }
-        }
-
-        true
     }
 }
 
@@ -313,6 +284,14 @@ fn main() {
         let str_value = req.path_params.get("str");
 
         res.text(str_value.map(|value| value.as_str()), None);
+    });
+
+    server.handle_fn("GET".to_string(), "/user-agent".to_string(), |req, res| {
+        if let Some(user_agent) = req.headers.get("User-Agent") {
+            res.text(Some(user_agent), None);
+        } else {
+            res.status_code(StatusCode::BadRequest);
+        }
     });
 
     server.listen("127.0.0.1:4221".to_string());
