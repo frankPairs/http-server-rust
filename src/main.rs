@@ -1,16 +1,13 @@
 use std::{
     collections::HashMap,
-    io::{self, Read, Write},
+    io::{self, prelude::*, BufReader, Write},
     net::{TcpListener, TcpStream},
 };
-
-const MAX_BYTES_STREAM_BUFFER: usize = 256;
 
 enum StatusCode {
     Ok,
     NotFound,
     BadRequest,
-    MethodNotAllowed,
 }
 
 impl std::fmt::Display for StatusCode {
@@ -21,9 +18,6 @@ impl std::fmt::Display for StatusCode {
             }
             StatusCode::NotFound => {
                 write!(f, "404 Not Found")
-            }
-            StatusCode::MethodNotAllowed => {
-                write!(f, "405 Method Not Allowed")
             }
             StatusCode::BadRequest => {
                 write!(f, "400 Bad Request")
@@ -44,28 +38,11 @@ struct Request {
 
 impl Request {
     fn new(stream: &mut TcpStream) -> Self {
-        let mut bytes_received: Vec<u8> = vec![];
-        let mut buffer = [0u8; MAX_BYTES_STREAM_BUFFER];
-
-        loop {
-            // Read from the current data in the TcpStream
-            let bytes_read = stream.read(&mut buffer).unwrap();
-
-            // However many bytes we read, extend the `received` string bytes
-            bytes_received.extend_from_slice(&buffer[..bytes_read]);
-
-            // If we didn't fill the array
-            // stop reading because there's no more data (we hope!)
-            if bytes_read < MAX_BYTES_STREAM_BUFFER {
-                break;
-            }
-        }
-
-        let request_string = String::from_utf8_lossy(&bytes_received);
-        let request_parts: Vec<String> = request_string
-            .replace("\r\n\r\n", "")
-            .split("\r\n")
-            .map(String::from)
+        let buf_reader = BufReader::new(stream);
+        let request_parts: Vec<String> = buf_reader
+            .lines()
+            .map(|result| result.unwrap())
+            .take_while(|line| !line.is_empty())
             .collect();
 
         let request_line = request_parts.first().unwrap_or(&String::new()).to_string();
@@ -226,25 +203,29 @@ impl ServerHTTP {
         let listener = TcpListener::bind(host).expect("Error to connect with the host");
 
         for stream in listener.incoming() {
+            let handlers = self.handlers.clone();
+
             match stream {
                 Ok(mut stream) => {
-                    let mut contain_matches = false;
-                    let mut req = Request::new(&mut stream);
-                    let mut res = Response::new(&mut stream, req.version.clone());
+                    std::thread::spawn(move || {
+                        let mut contain_matches = false;
+                        let mut req = Request::new(&mut stream);
+                        let mut res = Response::new(&mut stream, req.version.clone());
 
-                    for (k, h) in &self.handlers {
-                        let (method, pattern) = k.split_once(":").unwrap();
+                        for (k, h) in &handlers {
+                            let (method, pattern) = k.split_once(":").unwrap();
 
-                        if req.method_and_pattern_matches(method, pattern) {
-                            h(&mut req, &mut res);
+                            if req.method_and_pattern_matches(method, pattern) {
+                                h(&mut req, &mut res);
 
-                            contain_matches = true
+                                contain_matches = true
+                            }
                         }
-                    }
 
-                    if !contain_matches {
-                        res.status_code(StatusCode::NotFound);
-                    }
+                        if !contain_matches {
+                            res.status_code(StatusCode::NotFound);
+                        }
+                    });
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     continue;
