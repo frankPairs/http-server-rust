@@ -10,6 +10,7 @@ pub type HandlerFn = fn(&Request, &mut Response);
 #[derive(Debug, Default)]
 pub struct ServerHTTP {
     handlers: HashMap<String, HandlerFn>,
+    public_folder: Option<String>,
 }
 
 impl ServerHTTP {
@@ -18,13 +19,14 @@ impl ServerHTTP {
 
         for stream in listener.incoming() {
             let handlers = self.handlers.clone();
+            let public_folder = self.public_folder.clone();
 
             match stream {
                 Ok(mut stream) => {
                     std::thread::spawn(move || {
                         let mut contain_matches = false;
                         let mut req = Request::new(&mut stream);
-                        let mut res = Response::new(&mut stream, req.version.clone());
+                        let mut res = Response::new(&mut stream, &req.version, public_folder);
 
                         for (k, h) in &handlers {
                             let (method, pattern) = k.split_once(":").unwrap();
@@ -64,5 +66,9 @@ impl ServerHTTP {
             self.handlers
                 .insert(format!("{}:{}", method, pattern), handler_fn);
         }
+    }
+
+    pub fn set_public_folder(&mut self, public_folder: &str) {
+        self.public_folder = Some(public_folder.to_string());
     }
 }

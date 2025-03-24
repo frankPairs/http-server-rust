@@ -1,8 +1,22 @@
+use clap::Parser;
 use codecrafters_http_server::{response::StatusCode, server::ServerHTTP};
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Public server directory
+    #[arg(short, long)]
+    directory: Option<String>,
+}
+
 fn main() {
-    // Uncomment this block to pass the first stage
+    let args = Args::parse();
+
     let mut server = ServerHTTP::default();
+
+    if let Some(dir) = args.directory {
+        server.set_public_folder(dir.as_str());
+    }
 
     server.handle_fn("GET".to_string(), "/".to_string(), |_, res| {
         res.status_code(StatusCode::Ok);
@@ -26,8 +40,8 @@ fn main() {
         "GET".to_string(),
         "/files/{filename}".to_string(),
         |req, res| {
-            if let Some(user_agent) = req.headers.get("User-Agent") {
-                res.text(Some(user_agent), None);
+            if let Some(filename) = req.path_params.get("filename") {
+                res.file(filename, None);
             } else {
                 res.status_code(StatusCode::BadRequest);
             }
