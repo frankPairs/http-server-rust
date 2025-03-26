@@ -1,8 +1,6 @@
-use std::{
-    collections::HashMap,
-    io::{prelude::*, BufReader},
-    net::TcpStream,
-};
+use std::{collections::HashMap, io::prelude::*, net::TcpStream};
+
+const MAX_BYTES_STREAM_BUFFER: usize = 256;
 
 #[derive(Debug)]
 pub struct Request {
@@ -11,21 +9,35 @@ pub struct Request {
     pub version: String,
     pub headers: HashMap<String, String>,
     pub path_params: HashMap<String, String>,
+    pub body: String,
 }
 
 impl Request {
     pub fn new(stream: &mut TcpStream) -> Self {
-        let buf_reader = BufReader::new(stream);
-        let request_parts: Vec<String> = buf_reader
-            .lines()
-            .map(|result| result.unwrap())
-            .take_while(|line| !line.is_empty())
-            .collect();
+        let mut bytes_received: Vec<u8> = vec![];
+        let mut buffer = [0u8; MAX_BYTES_STREAM_BUFFER];
 
-        let request_line = request_parts.first().unwrap_or(&String::new()).to_string();
-        let request_line: Vec<String> = request_line.split(" ").map(String::from).collect();
-        let request_headers: Option<Vec<String>> =
-            request_parts.get(1..).map(|parts| parts.to_vec());
+        loop {
+            let bytes_read = stream.read(&mut buffer).unwrap();
+
+            bytes_received.extend_from_slice(&buffer[..bytes_read]);
+
+            if bytes_read < MAX_BYTES_STREAM_BUFFER {
+                break;
+            }
+        }
+
+        let request_string = String::from_utf8_lossy(&bytes_received);
+        let (request_info, request_body) = request_string.split_once("\r\n\r\n").unwrap();
+
+        let request_parts: Vec<String> = request_info.split("\r\n").map(String::from).collect();
+
+        let request_line: Vec<String> = request_parts
+            .first()
+            .unwrap_or(&String::new())
+            .split(" ")
+            .map(String::from)
+            .collect();
 
         let method = request_line.first().unwrap_or(&String::new()).to_string();
         let path = request_line
@@ -34,6 +46,9 @@ impl Request {
             .to_string();
 
         let version = request_line.get(2).unwrap_or(&String::new()).to_string();
+
+        let request_headers: Option<Vec<String>> =
+            request_parts.get(1..).map(|parts| parts.to_vec());
 
         let mut headers: HashMap<String, String> = HashMap::new();
 
@@ -51,6 +66,7 @@ impl Request {
             version,
             headers,
             path_params: HashMap::new(),
+            body: String::from(request_body),
         }
     }
 

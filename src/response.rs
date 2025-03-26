@@ -1,6 +1,3 @@
-use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::PathBuf;
 use std::{collections::HashMap, io::Write, net::TcpStream};
 
 pub enum StatusCode {
@@ -8,6 +5,7 @@ pub enum StatusCode {
     NotFound,
     BadRequest,
     InternalServer,
+    Created,
 }
 
 impl std::fmt::Display for StatusCode {
@@ -15,6 +13,9 @@ impl std::fmt::Display for StatusCode {
         match self {
             StatusCode::Ok => {
                 write!(f, "200 OK")
+            }
+            StatusCode::Created => {
+                write!(f, "201 Created")
             }
             StatusCode::NotFound => {
                 write!(f, "404 Not Found")
@@ -70,65 +71,18 @@ impl<'a> Response<'a> {
         self.write_response(status_code, text);
     }
 
-    pub fn file(&mut self, filename: &str, opts: Option<ResponseOptions>) {
-        if self.public_folder.is_none() {
-            println!("Missing public folder.");
-
-            self.write_response(StatusCode::InternalServer, None);
-
-            return;
-        }
-
+    pub fn file(&mut self, content: &str, bytes_read: usize, opts: Option<ResponseOptions>) {
         let status_code = opts.map(|opts| opts.status_code).unwrap_or(StatusCode::Ok);
-        let mut path = PathBuf::new();
 
-        path.push(self.public_folder.as_ref().unwrap());
-        path.push(filename);
+        self.headers.insert(
+            "Content-Type".to_string(),
+            "application/octet-stream".to_string(),
+        );
 
-        match path.try_exists() {
-            Ok(exists) => {
-                if !exists {
-                    self.write_response(StatusCode::NotFound, None);
+        self.headers
+            .insert("Content-Length".to_string(), bytes_read.to_string());
 
-                    return;
-                }
-            }
-            Err(err) => {
-                println!("Path error: {:?}", err);
-
-                self.write_response(StatusCode::InternalServer, None);
-
-                return;
-            }
-        }
-
-        let file = File::open(&path);
-
-        match file {
-            Ok(file) => {
-                let mut reader = BufReader::new(file);
-                let mut file_content = String::new();
-
-                let bytes_read = reader
-                    .read_to_string(&mut file_content)
-                    .expect("Failed to read file");
-
-                self.headers.insert(
-                    "Content-Type".to_string(),
-                    "application/octet-stream".to_string(),
-                );
-
-                self.headers
-                    .insert("Content-Length".to_string(), bytes_read.to_string());
-
-                self.write_response(status_code, Some(file_content.as_str()));
-            }
-            Err(err) => {
-                println!("File system error: {:?}", err);
-
-                self.write_response(StatusCode::InternalServer, None);
-            }
-        };
+        self.write_response(status_code, Some(content));
     }
 
     fn convert_headers_into_string(&self) -> String {

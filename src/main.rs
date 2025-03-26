@@ -1,5 +1,11 @@
+use std::path::PathBuf;
+
 use clap::Parser;
-use codecrafters_http_server::{response::StatusCode, server::ServerHTTP};
+use codecrafters_http_server::{
+    file_manager::{FileManager, FileManagerError},
+    response::StatusCode,
+    server::ServerHTTP,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -41,7 +47,55 @@ fn main() {
         "/files/{filename}".to_string(),
         |req, res| {
             if let Some(filename) = req.path_params.get("filename") {
-                res.file(filename, None);
+                if res.public_folder.is_none() {
+                    res.status_code(StatusCode::InternalServer);
+                }
+
+                let mut path = PathBuf::new();
+
+                path.push(res.public_folder.as_ref().unwrap());
+                path.push(filename);
+
+                let result = FileManager::read(path);
+
+                match result {
+                    Ok(read_result) => {
+                        res.file(&read_result.content, read_result.bytes_read, None);
+                    }
+                    Err(err) => match err {
+                        FileManagerError::NotFound => res.status_code(StatusCode::NotFound),
+                        _ => res.status_code(StatusCode::InternalServer),
+                    },
+                }
+            } else {
+                res.status_code(StatusCode::BadRequest);
+            }
+        },
+    );
+
+    server.handle_fn(
+        "POST".to_string(),
+        "/files/{filename}".to_string(),
+        |req, res| {
+            if let Some(filename) = req.path_params.get("filename") {
+                if res.public_folder.is_none() {
+                    println!("Missing public folder.");
+
+                    res.status_code(StatusCode::InternalServer);
+                }
+
+                let public_folder = res.public_folder.as_ref().unwrap();
+
+                let result = FileManager::write(public_folder, filename, req.body.as_str());
+
+                match result {
+                    Ok(()) => res.status_code(StatusCode::Created),
+                    Err(err) => {
+                        eprintln!("{}", err);
+
+                        res.status_code(StatusCode::InternalServer)
+                    }
+                }
             } else {
                 res.status_code(StatusCode::BadRequest);
             }
