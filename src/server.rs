@@ -26,7 +26,12 @@ impl ServerHTTP {
                     std::thread::spawn(move || {
                         let mut contain_matches = false;
                         let mut req = Request::new(&mut stream);
-                        let mut res = Response::new(&mut stream, &req.version, public_folder);
+                        let mut res = Response::new(
+                            &mut stream,
+                            &req.version,
+                            public_folder,
+                            req.headers.get("Accept-Encoding").cloned(),
+                        );
 
                         for (k, h) in &handlers {
                             let (method, pattern) = k.split_once(":").unwrap();
@@ -34,7 +39,9 @@ impl ServerHTTP {
                             if req.method_and_pattern_matches(method, pattern) {
                                 h(&mut req, &mut res);
 
-                                contain_matches = true
+                                contain_matches = true;
+
+                                break;
                             }
                         }
 

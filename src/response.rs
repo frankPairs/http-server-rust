@@ -1,5 +1,7 @@
 use std::{collections::HashMap, io::Write, net::TcpStream};
 
+use crate::encoding::{self, CompressionSchema, CompressionSchemaError};
+
 pub enum StatusCode {
     Ok,
     NotFound,
@@ -34,6 +36,7 @@ pub struct Response<'a> {
     pub version: String,
     pub headers: HashMap<String, String>,
     pub public_folder: Option<String>,
+    pub compression_schema: Option<CompressionSchema>,
     stream: &'a mut TcpStream,
 }
 
@@ -42,12 +45,25 @@ pub struct ResponseOptions {
 }
 
 impl<'a> Response<'a> {
-    pub fn new(stream: &'a mut TcpStream, version: &str, public_folder: Option<String>) -> Self {
+    pub fn new(
+        stream: &'a mut TcpStream,
+        version: &str,
+        public_folder: Option<String>,
+        compression_schema: Option<String>,
+    ) -> Self {
+        let compression_schema: Option<Result<CompressionSchema, CompressionSchemaError>> =
+            compression_schema.map(|v| v.try_into());
+
         Response {
             stream,
             version: String::from(version),
             headers: HashMap::new(),
             public_folder,
+            compression_schema: match compression_schema {
+                Some(Ok(schema)) => Some(schema),
+                Some(Err(_)) => None,
+                None => None,
+            },
         }
     }
 
@@ -96,6 +112,11 @@ impl<'a> Response<'a> {
     }
 
     fn write_response(&mut self, status_code: StatusCode, body: Option<&str>) {
+        if let Some(v) = &self.compression_schema {
+            self.headers
+                .insert("Content-Encoding".to_string(), v.to_string());
+        }
+
         let response_str = match body {
             Some(b) => {
                 let headers_string = self.convert_headers_into_string();
