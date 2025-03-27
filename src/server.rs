@@ -30,7 +30,7 @@ impl ServerHTTP {
                             &mut stream,
                             &req.version,
                             public_folder,
-                            req.headers.get("Accept-Encoding").cloned(),
+                            req.get_compression_schemas(),
                         );
 
                         for (k, h) in &handlers {

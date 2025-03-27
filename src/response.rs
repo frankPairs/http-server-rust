@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Write, net::TcpStream};
 
-use crate::encoding::{self, CompressionSchema, CompressionSchemaError};
+use crate::encoding::CompressionSchema;
 
 pub enum StatusCode {
     Ok,
@@ -36,7 +36,7 @@ pub struct Response<'a> {
     pub version: String,
     pub headers: HashMap<String, String>,
     pub public_folder: Option<String>,
-    pub compression_schema: Option<CompressionSchema>,
+    pub compression_schemas: Vec<CompressionSchema>,
     stream: &'a mut TcpStream,
 }
 
@@ -49,21 +49,14 @@ impl<'a> Response<'a> {
         stream: &'a mut TcpStream,
         version: &str,
         public_folder: Option<String>,
-        compression_schema: Option<String>,
+        compression_schemas: Vec<CompressionSchema>,
     ) -> Self {
-        let compression_schema: Option<Result<CompressionSchema, CompressionSchemaError>> =
-            compression_schema.map(|v| v.try_into());
-
         Response {
             stream,
             version: String::from(version),
             headers: HashMap::new(),
             public_folder,
-            compression_schema: match compression_schema {
-                Some(Ok(schema)) => Some(schema),
-                Some(Err(_)) => None,
-                None => None,
-            },
+            compression_schemas,
         }
     }
 
@@ -112,9 +105,17 @@ impl<'a> Response<'a> {
     }
 
     fn write_response(&mut self, status_code: StatusCode, body: Option<&str>) {
-        if let Some(v) = &self.compression_schema {
-            self.headers
-                .insert("Content-Encoding".to_string(), v.to_string());
+        if !self.compression_schemas.is_empty() {
+            let compression_schemas_str: Vec<String> = self
+                .compression_schemas
+                .iter()
+                .map(|v| v.to_string())
+                .collect();
+
+            self.headers.insert(
+                "Content-Encoding".to_string(),
+                compression_schemas_str.join(", "),
+            );
         }
 
         let response_str = match body {

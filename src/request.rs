@@ -1,5 +1,7 @@
 use std::{collections::HashMap, io::prelude::*, net::TcpStream};
 
+use crate::encoding::{CompressionSchema, CompressionSchemaError};
+
 const MAX_BYTES_STREAM_BUFFER: usize = 256;
 
 #[derive(Debug)]
@@ -115,5 +117,25 @@ impl Request {
         }
 
         true
+    }
+
+    pub fn get_compression_schemas(&self) -> Vec<CompressionSchema> {
+        let mut compression_schemas: Vec<CompressionSchema> = vec![];
+        let encoding = self.headers.get("Accept-Encoding");
+
+        if let Some(v) = encoding {
+            let schemas: Vec<String> = v.split(", ").map(|v| v.to_string()).collect();
+
+            for schema in schemas {
+                let compression_schema: Result<CompressionSchema, CompressionSchemaError> =
+                    schema.try_into();
+
+                if let Ok(cs) = compression_schema {
+                    compression_schemas.push(cs);
+                }
+            }
+        }
+
+        compression_schemas
     }
 }
