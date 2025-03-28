@@ -2,10 +2,10 @@ use std::{collections::HashMap, net::TcpListener};
 
 use crate::{
     request::Request,
-    response::{Response, StatusCode},
+    response::{ResponseBuilder, StatusCode},
 };
 
-pub type HandlerFn = fn(&Request, &mut Response);
+pub type HandlerFn = fn(&Request, &mut ResponseBuilder);
 
 #[derive(Debug, Default)]
 pub struct ServerHTTP {
@@ -26,12 +26,11 @@ impl ServerHTTP {
                     std::thread::spawn(move || {
                         let mut contain_matches = false;
                         let mut req = Request::new(&mut stream);
-                        let mut res = Response::new(
-                            &mut stream,
-                            &req.version,
-                            public_folder,
-                            req.get_compression_schemas(),
-                        );
+                        let mut res = ResponseBuilder::new(&mut stream);
+
+                        res.with_compression_schemas(req.get_compression_schemas());
+                        res.with_public_folder(public_folder);
+                        res.with_version(req.version.clone());
 
                         for (k, h) in &handlers {
                             let (method, pattern) = k.split_once(":").unwrap();
@@ -46,7 +45,8 @@ impl ServerHTTP {
                         }
 
                         if !contain_matches {
-                            res.status_code(StatusCode::NotFound);
+                            res.with_status_code(StatusCode::NotFound);
+                            res.send();
                         }
                     });
                 }
@@ -64,7 +64,7 @@ impl ServerHTTP {
         &mut self,
         method: String,
         pattern: String,
-        handler_fn: fn(&Request, &mut Response),
+        handler_fn: fn(&Request, &mut ResponseBuilder),
     ) {
         let key = format!("{}:{}", method, pattern);
         let exists = self.handlers.get(&key);

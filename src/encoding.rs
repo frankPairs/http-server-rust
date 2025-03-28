@@ -1,6 +1,18 @@
+use anyhow::Context;
+use flate2::{write::GzEncoder, Compression};
+use std::io::Write;
+
 #[derive(Debug)]
 pub enum CompressionSchema {
     Gzip,
+}
+
+impl CompressionSchema {
+    pub fn compress(&self, body: Vec<u8>) -> Result<Vec<u8>, anyhow::Error> {
+        match self {
+            CompressionSchema::Gzip => GzipCompressor::compress(body),
+        }
+    }
 }
 
 impl std::fmt::Display for CompressionSchema {
@@ -32,5 +44,23 @@ impl std::fmt::Display for CompressionSchemaError {
         match self {
             CompressionSchemaError::Unknown => write!(f, "Unknown compression schema"),
         }
+    }
+}
+
+struct GzipCompressor;
+
+impl GzipCompressor {
+    fn compress(value: Vec<u8>) -> Result<Vec<u8>, anyhow::Error> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+
+        encoder
+            .write_all(&value)
+            .context("Add value to the gzip encoder")?;
+
+        let result = encoder
+            .finish()
+            .with_context(|| format!("Encoded value = {:?}", value))?;
+
+        Ok(result)
     }
 }
