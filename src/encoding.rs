@@ -2,7 +2,7 @@ use anyhow::Context;
 use flate2::{write::GzEncoder, Compression};
 use std::io::Write;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CompressionSchema {
     Gzip,
 }

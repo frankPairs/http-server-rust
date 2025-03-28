@@ -45,8 +45,7 @@ impl ServerHTTP {
                         }
 
                         if !contain_matches {
-                            res.with_status_code(StatusCode::NotFound);
-                            res.send();
+                            res.send_status_code(StatusCode::NotFound);
                         }
                     });
                 }

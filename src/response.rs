@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write, net::TcpStream, vec};
 
 use crate::encoding::CompressionSchema;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StatusCode {
     Ok,
     NotFound,
@@ -35,9 +35,9 @@ impl std::fmt::Display for StatusCode {
 
 #[derive(Debug)]
 pub struct ResponseBuilder<'a> {
+    pub public_folder: Option<String>,
     version: String,
     headers: HashMap<String, String>,
-    pub public_folder: Option<String>,
     compression_schemas: Vec<CompressionSchema>,
     stream: &'a mut TcpStream,
     status_code: StatusCode,
