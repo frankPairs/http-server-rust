@@ -3,7 +3,7 @@ use std::{collections::HashMap, net::TcpListener};
 use crate::{
     handler::{HandlerFn, HandlerPattern},
     request::Request,
-    response::{ResponseBuilder, StatusCode},
+    response::{Response, ResponseBuilder, StatusCode},
 };
 
 #[derive(Debug, Default)]
@@ -24,11 +24,11 @@ impl ServerHTTP {
                 Ok(mut stream) => {
                     std::thread::spawn(move || {
                         let mut req = Request::new(&mut stream);
-                        let mut res = ResponseBuilder::new(&mut stream);
-
-                        res.with_compression_schemas(req.get_compression_schemas());
-                        res.with_public_folder(public_folder);
-                        res.with_version(req.version.clone());
+                        let res = ResponseBuilder::new(&mut stream)
+                            .with_compression_schemas(req.get_compression_schemas())
+                            .with_public_folder(public_folder)
+                            .with_version(req.version.clone())
+                            .build();
 
                         let handler = handlers.iter().find(|h| {
                             let pattern = h.0;
@@ -43,10 +43,10 @@ impl ServerHTTP {
 
                                 req.set_path_params(&pattern.get_path());
 
-                                handle_fn(&mut req, &mut res);
+                                handle_fn(req, res);
                             }
                             None => {
-                                res.send_status_code(StatusCode::NotFound);
+                                res.status_code(StatusCode::NotFound).send();
                             }
                         }
                     });
@@ -61,12 +61,7 @@ impl ServerHTTP {
         }
     }
 
-    pub fn handle_fn(
-        &mut self,
-        method: &str,
-        path: &str,
-        handler_fn: fn(&Request, &mut ResponseBuilder),
-    ) {
+    pub fn handle_fn(&mut self, method: &str, path: &str, handler_fn: fn(Request, Response)) {
         let handler_pattern = HandlerPattern(method.to_string(), path.to_string());
 
         self.handlers.entry(handler_pattern).or_insert(handler_fn);

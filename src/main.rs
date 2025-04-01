@@ -38,14 +38,16 @@ fn main() {
         if let Some(user_agent) = req.headers.get("User-Agent") {
             res.send_text(user_agent);
         } else {
-            res.send_status_code(StatusCode::BadRequest);
+            res.status_code(StatusCode::BadRequest).send();
         }
     });
 
     server.handle_fn("GET", "/files/{filename}", |req, res| {
         if let Some(filename) = req.path_params.get("filename") {
             if res.public_folder.is_none() {
-                res.send_status_code(StatusCode::InternalServer);
+                res.status_code(StatusCode::InternalServer).send();
+
+                return;
             }
 
             let mut path = PathBuf::new();
@@ -61,24 +63,26 @@ fn main() {
                 }
                 Err(err) => match err {
                     FileManagerError::NotFound => {
-                        res.send_status_code(StatusCode::NotFound);
+                        res.status_code(StatusCode::NotFound).send();
                     }
                     _ => {
-                        res.send_status_code(StatusCode::InternalServer);
+                        res.status_code(StatusCode::InternalServer).send();
                     }
                 },
             }
         } else {
-            res.send_status_code(StatusCode::BadRequest);
+            res.status_code(StatusCode::BadRequest).send();
         }
     });
 
     server.handle_fn("POST", "/files/{filename}", |req, res| {
         if let Some(filename) = req.path_params.get("filename") {
             if res.public_folder.is_none() {
-                println!("Missing public folder.");
+                eprintln!("Missing public folder.");
 
-                res.send_status_code(StatusCode::InternalServer);
+                res.status_code(StatusCode::InternalServer).send();
+
+                return;
             }
 
             let public_folder = res.public_folder.as_ref().unwrap();
@@ -87,14 +91,14 @@ fn main() {
 
             match result {
                 Ok(()) => {
-                    res.send_status_code(StatusCode::Created);
+                    res.status_code(StatusCode::Created).send();
                 }
                 Err(_) => {
-                    res.send_status_code(StatusCode::InternalServer);
+                    res.status_code(StatusCode::InternalServer).send();
                 }
             }
         } else {
-            res.send_status_code(StatusCode::BadRequest);
+            res.status_code(StatusCode::BadRequest).send();
         }
     });
 

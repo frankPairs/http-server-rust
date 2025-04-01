@@ -1,6 +1,6 @@
-use crate::{request::Request, response::ResponseBuilder};
+use crate::{request::Request, response::Response};
 
-pub type HandlerFn = fn(&Request, &mut ResponseBuilder);
+pub type HandlerFn = fn(Request, Response);
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct HandlerPattern(pub String, pub String);
