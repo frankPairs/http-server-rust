@@ -1,15 +1,14 @@
 use std::{collections::HashMap, net::TcpListener};
 
 use crate::{
+    handler::{HandlerFn, HandlerPattern},
     request::Request,
-    response::{ResponseBuilder, StatusCode},
+    response::{Response, ResponseBuilder, StatusCode},
 };
-
-pub type HandlerFn = fn(&Request, &mut ResponseBuilder);
 
 #[derive(Debug, Default)]
 pub struct ServerHTTP {
-    handlers: HashMap<String, HandlerFn>,
+    handlers: HashMap<HandlerPattern, HandlerFn>,
     public_folder: Option<String>,
 }
 
@@ -24,28 +23,31 @@ impl ServerHTTP {
             match stream {
                 Ok(mut stream) => {
                     std::thread::spawn(move || {
-                        let mut contain_matches = false;
                         let mut req = Request::new(&mut stream);
-                        let mut res = ResponseBuilder::new(&mut stream);
+                        let res = ResponseBuilder::new(&mut stream)
+                            .with_compression_schemas(req.get_compression_schemas())
+                            .with_public_folder(public_folder)
+                            .with_version(req.version.clone())
+                            .build();
 
-                        res.with_compression_schemas(req.get_compression_schemas());
-                        res.with_public_folder(public_folder);
-                        res.with_version(req.version.clone());
+                        let handler = handlers.iter().find(|h| {
+                            let pattern = h.0;
 
-                        for (k, h) in &handlers {
-                            let (method, pattern) = k.split_once(":").unwrap();
+                            pattern.contains_pattern(&req)
+                        });
 
-                            if req.method_and_pattern_matches(method, pattern) {
-                                h(&mut req, &mut res);
+                        match handler {
+                            Some(h) => {
+                                let pattern = h.0;
+                                let handle_fn = h.1;
 
-                                contain_matches = true;
+                                req.set_path_params(&pattern.get_path());
 
-                                break;
+                                handle_fn(req, res);
                             }
-                        }
-
-                        if !contain_matches {
-                            res.send_status_code(StatusCode::NotFound);
+                            None => {
+                                res.status_code(StatusCode::NotFound).send();
+                            }
                         }
                     });
                 }
@@ -59,19 +61,10 @@ impl ServerHTTP {
         }
     }
 
-    pub fn handle_fn(
-        &mut self,
-        method: String,
-        pattern: String,
-        handler_fn: fn(&Request, &mut ResponseBuilder),
-    ) {
-        let key = format!("{}:{}", method, pattern);
-        let exists = self.handlers.get(&key);
+    pub fn handle_fn(&mut self, method: &str, path: &str, handler_fn: fn(Request, Response)) {
+        let handler_pattern = HandlerPattern(method.to_string(), path.to_string());
 
-        if exists.is_none() {
-            self.handlers
-                .insert(format!("{}:{}", method, pattern), handler_fn);
-        }
+        self.handlers.entry(handler_pattern).or_insert(handler_fn);
     }
 
     pub fn set_public_folder(&mut self, public_folder: &str) {

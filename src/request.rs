@@ -72,24 +72,13 @@ impl Request {
         }
     }
 
-    pub fn method_and_pattern_matches(&mut self, method: &str, pattern: &str) -> bool {
-        if method != self.method {
-            return false;
-        }
-
-        if !pattern.starts_with('/') {
-            return false;
-        }
-
-        if pattern == "/" && self.path == "/" {
-            return true;
-        }
-
-        let pattern_values: Vec<&str> = pattern.split('/').collect();
+    /// It gets the request path parameters from a handler path
+    pub fn set_path_params(&mut self, handler_path: &str) {
+        let pattern_values: Vec<&str> = handler_path.split('/').collect();
         let path_values: Vec<&str> = self.path.split('/').collect();
 
         if pattern_values.len() != path_values.len() {
-            return false;
+            return;
         }
 
         // It analyzes each fragment of the url and checks if it matches with the current pattern
@@ -112,11 +101,9 @@ impl Request {
                 // anymore
                 self.path_params = HashMap::new();
 
-                return false;
+                return;
             }
         }
-
-        true
     }
 
     pub fn get_compression_schemas(&self) -> Vec<CompressionSchema> {

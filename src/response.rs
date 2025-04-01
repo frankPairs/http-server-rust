@@ -57,29 +57,57 @@ impl<'a> ResponseBuilder<'a> {
         }
     }
 
-    pub fn with_version(&mut self, version: String) {
-        self.version = version
+    pub fn with_version(self, version: String) -> Self {
+        Self { version, ..self }
     }
 
-    pub fn with_public_folder(&mut self, public_folder: Option<String>) {
-        self.public_folder = public_folder
+    pub fn with_public_folder(self, public_folder: Option<String>) -> Self {
+        Self {
+            public_folder,
+            ..self
+        }
     }
 
-    pub fn with_compression_schemas(&mut self, compression_schemas: Vec<CompressionSchema>) {
-        self.compression_schemas = compression_schemas
+    pub fn with_compression_schemas(self, compression_schemas: Vec<CompressionSchema>) -> Self {
+        Self {
+            compression_schemas,
+            ..self
+        }
     }
 
-    pub fn with_status_code(&mut self, status_code: StatusCode) {
-        self.status_code = status_code;
+    pub fn build(self) -> Response<'a> {
+        Response {
+            public_folder: self.public_folder,
+            version: self.version,
+            headers: self.headers,
+            compression_schemas: self.compression_schemas,
+            stream: self.stream,
+            status_code: self.status_code,
+            body: self.body,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Response<'a> {
+    pub public_folder: Option<String>,
+    version: String,
+    headers: HashMap<String, String>,
+    compression_schemas: Vec<CompressionSchema>,
+    stream: &'a mut TcpStream,
+    status_code: StatusCode,
+    body: Vec<u8>,
+}
+
+impl Response<'_> {
+    pub fn status_code(self, status_code: StatusCode) -> Self {
+        Self {
+            status_code,
+            ..self
+        }
     }
 
-    pub fn send_status_code(&mut self, status_code: StatusCode) {
-        self.status_code = status_code;
-
-        self.send();
-    }
-
-    pub fn send_text(&mut self, text: &str) {
+    pub fn send_text(mut self, text: &str) {
         self.headers
             .insert("Content-Type".to_string(), "text/plain".to_string());
         self.body = text.as_bytes().to_vec();
@@ -87,7 +115,7 @@ impl<'a> ResponseBuilder<'a> {
         self.send();
     }
 
-    pub fn send_file(&mut self, content: &str) {
+    pub fn send_file(mut self, content: &str) {
         self.headers.insert(
             "Content-Type".to_string(),
             "application/octet-stream".to_string(),
@@ -97,7 +125,7 @@ impl<'a> ResponseBuilder<'a> {
         self.send();
     }
 
-    pub fn send(&mut self) {
+    pub fn send(mut self) {
         let body = &self.get_body();
 
         if !self.compression_schemas.is_empty() {
