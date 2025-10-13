@@ -155,6 +155,11 @@ impl Response<'_> {
         }
     }
 
+    pub fn insert_header(&mut self, header_name: &str, header_value: &str) {
+        self.headers
+            .insert(header_name.to_string(), header_value.to_string());
+    }
+
     fn get_body(&self) -> Vec<u8> {
         if self.body.is_empty() || self.compression_schemas.is_empty() {
             return self.body.clone();

@@ -39,15 +39,7 @@ impl ServerHTTP {
 
                         let mut req = Request::new(req_message);
 
-                        // When Connection header is present, and its value is 'close', then we
-                        // jump out of the connection loop
-                        if let Some(value) = req.headers.get("Connection") {
-                            if value.to_lowercase() == "close" {
-                                break;
-                            }
-                        }
-
-                        let res = ResponseBuilder::new(&mut stream)
+                        let mut res = ResponseBuilder::new(&mut stream)
                             .with_compression_schemas(req.get_compression_schemas())
                             .with_public_folder(public_folder_cloned)
                             .with_version(req.version.clone())
@@ -63,8 +55,19 @@ impl ServerHTTP {
                             Some(h) => {
                                 let pattern = h.0;
                                 let handle_fn = h.1;
+                                let req_headers = req.headers.clone();
 
                                 req.set_path_params(&pattern.get_path());
+
+                                // When Connection header is present, and its value is 'close', then we
+                                // jump out of the connection loop
+                                if let Some(value) = req_headers.get("Connection") {
+                                    if value.to_lowercase() == "close" {
+                                        res.insert_header("Connection", "close");
+                                        handle_fn(req, res);
+                                        break;
+                                    }
+                                }
 
                                 handle_fn(req, res);
                             }
