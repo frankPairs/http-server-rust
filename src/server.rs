@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::TcpListener};
 
 use crate::{
     handler::{HandlerFn, HandlerPattern},
-    request::Request,
+    request::{Request, RequestReader},
     response::{Response, ResponseBuilder, StatusCode},
 };
 
@@ -17,20 +17,43 @@ impl ServerHTTP {
         let listener = TcpListener::bind(host).expect("Error to connect with the host");
 
         for stream in listener.incoming() {
-            let handlers = self.handlers.clone();
-            let public_folder = self.public_folder.clone();
+            let handlers_cloned = self.handlers.clone();
+            let public_folder_cloned = self.public_folder.clone();
 
             match stream {
                 Ok(mut stream) => {
-                    std::thread::spawn(move || {
-                        let mut req = Request::new(&mut stream);
+                    std::thread::spawn(move || loop {
+                        let public_folder_cloned = public_folder_cloned.clone();
+                        let handlers_cloned = handlers_cloned.clone();
+
+                        let req_reader = RequestReader::new(&mut stream);
+                        let req_message = req_reader.read_to_string().unwrap();
+
+                        // In order to keep the connection alive, we are looping around this logic,
+                        // so there are going to be times where the there is not any message to
+                        // reply. We do not want to parse the request when message is empty, so we just
+                        // continue the loop.
+                        if req_message.is_empty() {
+                            continue;
+                        }
+
+                        let mut req = Request::new(req_message);
+
+                        // When Connection header is present, and its value is 'close', then we
+                        // jump out of the connection loop
+                        if let Some(value) = req.headers.get("Connection") {
+                            if value.to_lowercase() == "close" {
+                                break;
+                            }
+                        }
+
                         let res = ResponseBuilder::new(&mut stream)
                             .with_compression_schemas(req.get_compression_schemas())
-                            .with_public_folder(public_folder)
+                            .with_public_folder(public_folder_cloned)
                             .with_version(req.version.clone())
                             .build();
 
-                        let handler = handlers.iter().find(|h| {
+                        let handler = handlers_cloned.iter().find(|h| {
                             let pattern = h.0;
 
                             pattern.contains_pattern(&req)

@@ -1,8 +1,38 @@
-use std::{collections::HashMap, io::prelude::*, net::TcpStream};
+use std::{collections::HashMap, io::prelude::*, net::TcpStream, usize};
 
 use crate::encoding::{CompressionSchema, CompressionSchemaError};
 
 const MAX_BYTES_STREAM_BUFFER: usize = 256;
+
+#[derive(Debug)]
+pub struct RequestReader<'a> {
+    stream: &'a mut TcpStream,
+}
+
+impl<'a> RequestReader<'a> {
+    pub fn new(stream: &'a mut TcpStream) -> Self {
+        Self { stream }
+    }
+
+    pub fn read_to_string(self) -> std::io::Result<String> {
+        let mut bytes_received: Vec<u8> = vec![];
+        let mut buffer = [0u8; MAX_BYTES_STREAM_BUFFER];
+
+        loop {
+            let bytes_read = self.stream.read(&mut buffer)?;
+
+            bytes_received.extend_from_slice(&buffer[..bytes_read]);
+
+            if bytes_read < MAX_BYTES_STREAM_BUFFER {
+                break;
+            }
+        }
+
+        let req_message = String::from_utf8_lossy(&bytes_received);
+
+        Ok(req_message.to_string())
+    }
+}
 
 #[derive(Debug)]
 pub struct Request {
@@ -15,21 +45,7 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn new(stream: &mut TcpStream) -> Self {
-        let mut bytes_received: Vec<u8> = vec![];
-        let mut buffer = [0u8; MAX_BYTES_STREAM_BUFFER];
-
-        loop {
-            let bytes_read = stream.read(&mut buffer).unwrap();
-
-            bytes_received.extend_from_slice(&buffer[..bytes_read]);
-
-            if bytes_read < MAX_BYTES_STREAM_BUFFER {
-                break;
-            }
-        }
-
-        let request_string = String::from_utf8_lossy(&bytes_received);
+    pub fn new(request_string: String) -> Self {
         let (request_info, request_body) = request_string.split_once("\r\n\r\n").unwrap();
 
         let request_parts: Vec<String> = request_info.split("\r\n").map(String::from).collect();
